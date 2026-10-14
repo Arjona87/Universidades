@@ -1161,18 +1161,43 @@ svg.leaflet-image-layer.leaflet-interactive path {
     };
     const tinta = hex => (hex === '#2171B5' || hex === '#084594') ? 'b' : 'n';
 
+    /* El encuadre inicial se calcula SOLO cuando el contenedor ya tiene tamaño.
+       Dentro de un iframe oculto al cargar (visor de artifacts, vistas previas)
+       el div mide 0 px: fitBounds devolvía el zoom máximo y los puntos quedaban
+       fuera de la vista. Un ResizeObserver reencuadra hasta que el usuario
+       mueva el mapa por su cuenta. */
+    let encuadreUsuario = false, encuadrado = false;
+    const contMapa = document.getElementById('mapa');
+    const boundsTodos = () => L.latLngBounds(REGS.map(r => [r.latitud, r.longitud]));
+    function encuadraInicial() {
+        if (!mapa || encuadreUsuario) return;
+        if (contMapa.clientWidth < 50 || contMapa.clientHeight < 50) return;
+        mapa.invalidateSize(false);
+        mapa.fitBounds(boundsTodos(), { padding:[24, 24], maxZoom:13, animate:false });
+        encuadrado = true;
+    }
     function iniciaMapa() {
         if (typeof L === 'undefined') { info.textContent = 'No se pudieron cargar las librerías del mapa.'; return false; }
-        mapa = L.map('mapa', { zoomSnap:0.5, preferCanvas:false });
-        const capaOSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 });
-        capaOSM.on('tileload', () => { cargadas++; });
-        capaOSM.on('tileerror', () => {
+        mapa = L.map('mapa', { zoomSnap:0.5, minZoom:8, maxZoom:18, center:[20.64, -103.36], zoom:10 });
+        /* CARTO Positron: no exige encabezado Referer, así que también carga al abrir
+           el archivo localmente (OSM lo bloquea con file://). */
+        const capaBase = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution:'© OpenStreetMap · © CARTO', subdomains:'abcd', maxZoom:19
+        });
+        capaBase.on('tileload', () => { cargadas++; });
+        capaBase.on('tileerror', () => {
             fallas++;
             if (!sinMosaico && cargadas === 0 && fallas >= 4) { sinMosaico = true; avisoMosaico.hidden = false; render(false); }
         });
-        capaOSM.addTo(mapa);
-        const b = L.latLngBounds(REGS.map(r => [r.latitud, r.longitud]));
-        mapa.fitBounds(b, { padding:[24, 24] });
+        capaBase.addTo(mapa);
+        /* Cualquier interacción directa con el mapa (arrastre, rueda, botones de zoom, popups) congela el encuadre. */
+        ['pointerdown', 'wheel', 'touchstart'].forEach(ev =>
+            contMapa.addEventListener(ev, () => { if (encuadrado) encuadreUsuario = true; }, { passive:true }));
+        if (window.ResizeObserver) {
+            new ResizeObserver(() => { mapa.invalidateSize(false); if (!encuadreUsuario) encuadraInicial(); }).observe(contMapa);
+        }
+        window.addEventListener('load', encuadraInicial);
+        encuadraInicial();
         return true;
     }
 
