@@ -896,6 +896,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
     .pop-tabla td.vacio { color:#94A3B8; }
     .pop-tabla td code { font-size:11px; color:#33465F; }
     .pop-nota { margin-top:8px; font-size:11px; color:#B7791F; line-height:1.45; }
+    .pop-campo { font-size:12px; line-height:1.45; color:#0F1E33; word-break:break-word; }
+    .pop-campo + .pop-campo { margin-top:6px; padding-top:6px; border-top:1px solid #E9EFF6; }
+    .pop-campo span { display:block; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#64748B; }
+    .pop-campo code { font-size:11px; color:#33465F; }
+    .pop-campo em { color:#94A3B8; font-style:normal; }
+    .pop-chico .leaflet-popup-content { margin:9px 11px; }
+    .pop-chico .pop-nombre { font-size:12.5px; margin-bottom:6px; }
+    .pop-chico .pop-campo { font-size:11px; }
+    .pop-chico .pop-campo code { font-size:10px; }
+    .pop-chico .leaflet-popup-close-button { width:28px; height:28px; font-size:20px; line-height:26px; }
 
     .coro-etq { background:none; border:0; box-shadow:none; padding:0; font:700 12px/1 Inter, Arial, sans-serif; white-space:nowrap; pointer-events:none; }
     .coro-etq::before { display:none; }
@@ -991,7 +1001,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
             </div>
 
             <div id="mapa" role="region" aria-label="Mapa de escuelas del AMG"></div>
-            <p class="mapa-aviso" id="avisoMosaico" hidden>El mapa base de calles no está disponible en esta vista. Se muestran los límites municipales del Marco Geoestadístico INEGI como referencia.</p>
+            <p class="mapa-aviso" id="avisoMosaico" hidden>El mapa de calles de OpenStreetMap no cargó en esta vista: solo aparece cuando la página se abre desde su sitio web (GitHub Pages). Mientras tanto se muestran los límites municipales del Marco Geoestadístico INEGI como referencia.</p>
         </div>
     </section>
 </main>
@@ -1130,25 +1140,18 @@ svg.leaflet-image-layer.leaflet-interactive path {
     }
 
     /* ---------- Ficha (popup) con todos los campos del Excel ---------- */
+    /* Ficha compacta: solo nombre, geometría y domicilio (instrucción del 14-oct-2026). */
+    const val = v => (v === null || v === undefined || String(v).trim() === '') ? null : String(v);
     function ficha(r) {
-        const t = TIPO[r.tipo] || { color:'#64748B' };
-        const filas = BASE.campos.map(c => {
-            const v = r[c];
-            const vacio = v === null || v === undefined || String(v).trim() === '';
-            let celda;
-            if (vacio) celda = '<td class="vacio">Sin dato</td>';
-            else if (c === 'wkt_geom') celda = `<td><code>${esc(v)}</code></td>`;
-            else if (c === 'longitud' || c === 'latitud') celda = `<td>${esc(Number(v).toFixed(6))}</td>`;
-            else celda = `<td>${esc(v)}</td>`;
-            return `<tr><th>${esc(ETIQUETAS[c] || c)}</th>${celda}</tr>`;
-        }).join('');
-        const nota = (r._mun && r._mun !== r.municipio)
-            ? `<div class="pop-nota">Para filtros y coropleta se asignó a <b>${esc(r._mun)}</b> según el polígono municipal INEGI que contiene la coordenada${r.municipio ? ` (el Excel registra «${esc(r.municipio)}»)` : ' (el Excel no registra municipio)'}.</div>`
-            : '';
-        return `<div class="pop-tipo"><i style="background:${t.color}"></i>${esc(r.tipo)}</div>
-            <div class="pop-nombre">${esc(r.nombre)}</div>
-            <table class="pop-tabla">${filas}</table>${nota}`;
+        const geom = val(r.wkt_geom), dom = val(r.domicilio);
+        return `<div class="pop-nombre">${esc(r.nombre)}</div>
+            <div class="pop-campo"><span>Geometría</span>${geom ? `<code>${esc(geom)}</code>` : '<em>Sin dato</em>'}</div>
+            <div class="pop-campo"><span>Domicilio</span>${dom ? esc(dom) : '<em>Sin dato</em>'}</div>`;
     }
+    const esMovil = () => window.matchMedia('(max-width: 600px)').matches;
+    const optsPopup = () => esMovil()
+        ? { maxWidth:230, minWidth:180, autoPanPaddingTopLeft:[10, 60], autoPanPaddingBottomRight:[10, 10], className:'pop-chico' }
+        : { maxWidth:300, minWidth:220, autoPanPadding:[20, 20] };
 
     /* ---------- Mapa ---------- */
     let mapa = null, capaDatos = null, capaGeo = null, leyenda = null, sinMosaico = false, cargadas = 0, fallas = 0;
@@ -1179,10 +1182,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     function iniciaMapa() {
         if (typeof L === 'undefined') { info.textContent = 'No se pudieron cargar las librerías del mapa.'; return false; }
         mapa = L.map('mapa', { zoomSnap:0.5, minZoom:8, maxZoom:18, center:[20.64, -103.36], zoom:10 });
-        /* CARTO Positron: no exige encabezado Referer, así que también carga al abrir
-           el archivo localmente (OSM lo bloquea con file://). */
-        const capaBase = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution:'© OpenStreetMap · © CARTO', subdomains:'abcd', maxZoom:19
+        /* Mosaico OSM, el mismo de Reportes. Requiere servirse desde un sitio web
+           (GitHub Pages): abierto con file:// o dentro del visor de artifacts no carga. */
+        const capaBase = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution:'© OpenStreetMap', maxZoom:19
         });
         capaBase.on('tileload', () => { cargadas++; });
         capaBase.on('tileerror', () => {
@@ -1261,7 +1264,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
                     capaDatos.addLayer(L.marker([r.latitud, r.longitud], {
                         icon:L.divIcon({ className:'pin', html:`<span style="width:${s}px;height:${s}px;background:${t.color}"></span>`, iconSize:[s, s] }),
                         title:r.nombre
-                    }).bindPopup(ficha(r), { maxWidth:360, minWidth:280 }));
+                    }).bindPopup(ficha(r), optsPopup()));
                 });
             } else {
                 capaDatos = L.featureGroup();
@@ -1271,7 +1274,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
                     L.circleMarker([r.latitud, r.longitud], {
                         radius:t.sup ? 8 : 6, color:'#FFFFFF', weight:1.6, fillColor:t.color, fillOpacity:.92
                     }).bindTooltip(esc(r.nombre), { direction:'top', offset:[0, -6] })
-                      .bindPopup(ficha(r), { maxWidth:360, minWidth:280 })
+                      .bindPopup(ficha(r), optsPopup())
                       .addTo(capaDatos);
                 });
             }
